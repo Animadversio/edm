@@ -120,7 +120,6 @@ class StackedRandomGenerator:
 # Other ranks follow.
 # if dist.get_rank() == 0:
 #     torch.distributed.barrier()
-#%%
 def tsr_to_mtg(images_tsr, nrow=8, padding=2):
     images_actual = (images_tsr * 127.5 + 128).clip(0, 255).to(torch.uint8)
     return ToPILImage()(make_grid(images_actual, nrow=nrow, padding=padding))
@@ -132,14 +131,16 @@ with dnnlib.util.open_url(network_pkl, verbose=(dist.get_rank() == 0)) as f:
 #%%
 # savedir = r"E:\OneDrive - Harvard University\ICML2023_DiffGeometry\Figures\ImageSpacePCA\CIFAR10"
 # figdir = r"E:\OneDrive - Harvard University\NeurIPS2023_Diffusion\Figures\edm_cifar_analytical"
-figdir = r"/home/binxu/DL_Projects/edm_analy_sample/cifar10_uncond_vp_edm"
-savedir = r"/home/binxu/Datasets"
-data = torch.load(join(savedir, "CIFAR10_pca.pt"))
+figdir = r"/home/binxu/DL_Projects/edm_analy_sample/cifar10_uncond_vp_edm_theory"
+PCAdir = r"/home/binxu/DL_Projects/imgdataset_PCAs"
+data = torch.load(join(PCAdir, "CIFAR10_pca.pt"))
 S, V, imgmean, cov_eigs  = data["S"], data["V"], data["mean"], data["cov_eigs"]
 # S = S.to(device)
 V = V.to(device)
 imgmean = imgmean.to(device)
 cov_eigs = cov_eigs.to(device)
+#%%
+os.makedirs(figdir, exist_ok=True)
 #%% hybrid sampler
 seeds = list(range(50000))
 max_batch_size = 256
@@ -170,19 +171,20 @@ for batch_seeds in tqdm.tqdm(rank_batches, unit='batch', ):
                                 V, cov_eigs * 4,
                                 t_steps.float(), sigma_T=t_steps[0].float())
     class_labels = None
-    for skipstep in [0, 1, 2, 3, 4, 5, 6, 7, 8, ]:  # range(1, num_steps):
+    for skipstep in [0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 12]:  # range(1, num_steps):
         sigma_max_skip = t_steps[skipstep]
         print(f"skipstep={skipstep}, skip to sigma_max={sigma_max_skip}")
         skip_kwargs = dict(sigma_min=0.002, sigma_max=sigma_max_skip, rho=7, num_steps=num_steps - skipstep)
         skip_latents = x_traj_analy[skipstep].reshape(batch_size,
                               net.img_channels, net.img_resolution, net.img_resolution)
         skip_latents = skip_latents / sigma_max_skip
-        skip_images, _, _, _ = edm_sampler_return(net, latents, class_labels,
+        skip_images, _, _, _ = edm_sampler_return(net, skip_latents, class_labels,
                                             randn_like=rnd.randn_like, **skip_kwargs)
         mtg = tsr_to_mtg(skip_images, nrow=16, padding=2)
         mtg.save(join(figdir, f"rnd{batch_seeds[0]:06d}-{batch_seeds[-1]:06d}_skip{skipstep}_noise{sigma_max_skip:.0f}.png"))
         # images_actual = (skip_images * 127.5 + 128).clip(0, 255).to(torch.uint8)
         # ToPILImage()(make_grid(images_actual, nrow=8, padding=2)).show()
+
 
 
 
@@ -196,10 +198,10 @@ with dnnlib.util.open_url(network_pkl, verbose=(dist.get_rank() == 0)) as f:
 #%%
 # savedir = r"E:\OneDrive - Harvard University\ICML2023_DiffGeometry\Figures\ImageSpacePCA\CIFAR10"
 # figdir = r"E:\OneDrive - Harvard University\NeurIPS2023_Diffusion\Figures\edm_cifar_analytical"
-figdir = r"/home/binxu/DL_Projects/edm_analy_sample/ffhq64_uncond_vp_edm"
+figdir = r"/home/binxu/DL_Projects/edm_analy_sample/ffhq64_uncond_vp_edm_theory"
 PCAdir = r"/home/binxu/DL_Projects/imgdataset_PCAs"
 data = torch.load(join(PCAdir, "ffhq64_PCA.pt"))
-cov_eigs, V, imgmean  = data["eigval"], data["eigvec"], data["imgmean"]
+cov_eigs, V, imgmean = data["eigval"], data["eigvec"], data["imgmean"]
 # S = S.to(device)
 V = V.to(device)
 imgmean = imgmean.to(device)
@@ -242,7 +244,7 @@ for batch_seeds in tqdm.tqdm(rank_batches, unit='batch', ):
         skip_latents = x_traj_analy[skipstep].reshape(batch_size,
                               net.img_channels, net.img_resolution, net.img_resolution)
         skip_latents = skip_latents / sigma_max_skip
-        skip_images, _, _, _ = edm_sampler_return(net, latents, class_labels,
+        skip_images, _, _, _ = edm_sampler_return(net, skip_latents, class_labels,
                                             randn_like=rnd.randn_like, **skip_kwargs)
         mtg = tsr_to_mtg(skip_images, nrow=8, padding=2)
         mtg.save(join(figdir, f"rnd{batch_seeds[0]:06d}-{batch_seeds[-1]:06d}_skip{skipstep}_noise{sigma_max_skip:.0f}.png"))
