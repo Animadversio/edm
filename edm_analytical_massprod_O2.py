@@ -4,7 +4,7 @@ import re
 from os.path import join
 import click
 import sys
-sys.path.append(r"/home/binxu/Github/edm")
+sys.path.append(r"/home/biw905/Github/edm")
 import tqdm
 import pickle
 import numpy as np
@@ -122,31 +122,70 @@ def tsr_to_mtg(images_tsr, nrow=8, padding=2):
 # Other ranks follow.
 # if dist.get_rank() == 0:
 #     torch.distributed.barrier()
-#%% FFHQ64
-device = 'cuda'
-network_pkl = 'https://nvlabs-fi-cdn.nvidia.com/edm/pretrained/edm-ffhq-64x64-uncond-vp.pkl'
-with dnnlib.util.open_url(network_pkl, verbose=(dist.get_rank() == 0)) as f:
-    net = pickle.load(f)['ema'].to(device)
+
+
+
+#%% hybrid sampler
 #%%
 # savedir = r"E:\OneDrive - Harvard University\ICML2023_DiffGeometry\Figures\ImageSpacePCA\CIFAR10"
 # figdir = r"E:\OneDrive - Harvard University\NeurIPS2023_Diffusion\Figures\edm_cifar_analytical"
 # figdir = r"/home/binxu/DL_Projects/edm_analy_sample/ffhq64_uncond_vp_edm"
 # PCAdir = r"/home/binxu/DL_Projects/imgdataset_PCAs"
+#%%
+# create a cli for seeds list, batch size, skip step list
+import argparse
+parser = argparse.ArgumentParser(description='CLI for handling various parameters.')
+parser.add_argument('--seeds_range', nargs='+', type=int, default=[0, 512], help='List of seeds.')
+parser.add_argument('--max-batch-size', type=int, default=64, help='Maximum batch size.')
+parser.add_argument('--skipstep-list', nargs='+', type=int, default=[0, 2, 4, 6, 8, 10, 12, 14, 16, 20], help='List of skip steps.')
+parser.add_argument('--dataset-name', type=str, default="ffhq64", help='Name of the dataset.')
+parser.add_argument('--steps', type=int, default=40, help='Number of steps.')
+args = parser.parse_args()
 
-figdir = r"/n/scratch3/users/b/biw905/edm_analy_sample/ffhq64_uncond_vp_edm_theory"
+print(f'Seeds: {args.seeds_range}')
+print(f'Max Batch Size: {args.max_batch_size}')
+print(f'Skipstep List: {args.skipstep_list}')
+print(f'Dataset Name: {args.dataset_name}')
+
+seeds = list(range(args.seeds_range[0], args.seeds_range[1]))
+max_batch_size = args.max_batch_size
+skipstep_list = args.skipstep_list
+dataset_name = args.dataset_name
+num_steps = args.steps
+# seeds = list(range(512))
+# max_batch_size = 64
+# skipstep_list = [0, 2, 4, 6, 8, 10, 12, 14, 16, 20]
+# dataset_name = "ffhq64"
+#%%
 PCAdir = r"/home/biw905/Datasets/imgdataset_PCAs"
-os.makedirs(figdir, exist_ok=True)
-data = torch.load(join(PCAdir, "ffhq64_PCA.pt"))
+device = 'cuda'
+if dataset_name == "ffhq64":
+    # FFHQ64
+    network_pkl = 'https://nvlabs-fi-cdn.nvidia.com/edm/pretrained/edm-ffhq-64x64-uncond-vp.pkl'
+    figdir = r"/n/scratch3/users/b/biw905/edm_analy_sample/ffhq64_uncond_vp_edm_theory"
+    data = torch.load(join(PCAdir, "ffhq64_PCA.pt"))
+    assert num_steps == 40
+elif dataset_name == "afhq64":
+    # AFHQ64
+    network_pkl = 'https://nvlabs-fi-cdn.nvidia.com/edm/pretrained/edm-afhqv2-64x64-uncond-vp.pkl'
+    figdir = r"/n/scratch3/users/b/biw905/edm_analy_sample/afhqv264_uncond_vp_edm_theory"
+    data = torch.load(join(PCAdir, "afhqv264_PCA.pt"))
+    assert num_steps == 40
+else:
+    raise NotImplementedError("Only support ffhq64 and afhq64")
+
+# load covariance and mean of the dataset
 cov_eigs, V, imgmean  = data["eigval"], data["eigvec"], data["imgmean"]
 # S = S.to(device)
 V = V.to(device)
 imgmean = imgmean.to(device)
 cov_eigs = cov_eigs.to(device)
-#%% hybrid sampler
-seeds = list(range(512))
-max_batch_size = 64
+os.makedirs(figdir, exist_ok=True)
+# Load Score network.
+with dnnlib.util.open_url(network_pkl, verbose=(dist.get_rank() == 0)) as f:
+    net = pickle.load(f)['ema'].to(device)
 #%%
-num_steps = 40
+# num_steps = 40
 sigma_min = 0.002
 sigma_max = 80
 rho = 7
@@ -160,8 +199,7 @@ t_steps = torch.cat([net.round_sigma(t_steps), torch.zeros_like(t_steps[:1])])  
 #%%
 num_batches = ((len(seeds) - 1) // (max_batch_size * dist.get_world_size()) + 1) * dist.get_world_size()
 all_batches = torch.as_tensor(seeds).tensor_split(num_batches)
-rank_batches = all_batches
-for batch_seeds in tqdm.tqdm(rank_batches, unit='batch', ):
+for batch_seeds in tqdm.tqdm(all_batches, unit='batch', ):
     batch_size = len(batch_seeds)
     if batch_size == 0:
         continue
@@ -173,7 +211,7 @@ for batch_seeds in tqdm.tqdm(rank_batches, unit='batch', ):
                                 V, cov_eigs * 4,
                                 t_steps.float(), sigma_T=t_steps[0].float())
     class_labels = None
-    for skipstep in [0, 2, 4, 6, 8, 10, 12, 14, 16, 20]: # [0, 1, 2, 3, 4, 5, 6, 7, 8, ]:  # range(1, num_steps):
+    for skipstep in skipstep_list: # [0, 1, 2, 3, 4, 5, 6, 7, 8, ]:  # range(1, num_steps):
         sigma_max_skip = t_steps[skipstep]
         print(f"skipstep={skipstep}, skip to sigma_max={sigma_max_skip}")
         skip_kwargs = dict(sigma_min=0.002, sigma_max=sigma_max_skip, rho=7, num_steps=num_steps - skipstep)
