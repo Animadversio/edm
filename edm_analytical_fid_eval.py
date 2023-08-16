@@ -1,8 +1,35 @@
 from os.path import join
 import os
+import re
 import numpy as np
 import matplotlib.pyplot as plt
-#%%
+import tqdm
+
+
+def find_unique_suffixes(folder_name):
+    # List all the files in the specified folder
+    file_names_list = [f for f in os.listdir(folder_name) if os.path.isfile(os.path.join(folder_name, f))]
+
+    # Regular expression pattern to match the "skipXX_noiseXX" part
+    pattern = re.compile(r'skip\d+_noise\d+')
+
+    # Extract the specific suffix pattern from each file name stem
+    suffixes = [pattern.search(file_name.split('.')[0]).group() for file_name in file_names_list if
+                pattern.search(file_name.split('.')[0])]
+
+    # Get unique suffixes
+    unique_suffixes = set(suffixes)
+
+    # Define a function to extract the number after "skip"
+    def get_skip_number(suffix):
+        return int(suffix.split('_')[0].replace('skip', ''))
+
+    # Sort the unique suffixes by the number after "skip"
+    sorted_suffixes = sorted(unique_suffixes, key=get_skip_number)
+
+    return sorted_suffixes
+
+
 def crop_all_from_montage(img, totalnum, imgsize=32, pad=2):
     """Return all crops from a montage image"""
     nrow, ncol = (img.shape[0] - pad) // (imgsize + pad), (img.shape[1] - pad) // (imgsize + pad)
@@ -15,17 +42,27 @@ def crop_all_from_montage(img, totalnum, imgsize=32, pad=2):
     return imgcol
 
 
-# TODO: find a way to compute t_steps from skipsteps
+def find_files_with_suffix(folder_path, target_suffix):
+    # List all files in the specified folder
+    all_files = [f for f in os.listdir(folder_path) if os.path.isfile(os.path.join(folder_path, f))]
 
-for skipstep in [0, 1, 2, 3, 4, 5, 6, 7, 8, ]:  # range(1, num_steps):
-    sigma_max_skip = t_steps[skipstep]
-    print(f"skip{skipstep}_noise{sigma_max_skip:.0f}")
-#%%
-figdir = "/home/binxu/DL_Projects/edm_analy_sample/cifar10_uncond_vp_edm"
-croproot = "/home/binxu/DL_Projects/edm_analy_sample/cifar10_uncond_vp_edm_crops"
-for skip, sigma_max_skip in zip([0, 1, 2, 3, 4, 5, 6, 7, 8, ],
-                                t_steps):
-    os.makedirs(join(croproot, f"skip{skip}_noise{sigma_max_skip:.0f}"), exist_ok=True)
+    # Filter files that contain the target suffix
+    matching_files = sorted([file_name for file_name in all_files if target_suffix in file_name])
+
+    return matching_files
+
+# TODO: find a way to compute t_steps from skipsteps
+# suffixes = find_unique_suffixes(r"D:\DL_Projects\Vision\edm_analy_sample\ffhq64_uncond_vp_edm_theory")
+# # for skipstep in [0, 1, 2, 3, 4, 5, 6, 7, 8, ]:  # range(1, num_steps):
+# #     sigma_max_skip = t_steps[skipstep]
+# #     print(f"skip{skipstep}_noise{sigma_max_skip:.0f}")
+# filenames = find_files_with_suffix(r"D:\DL_Projects\Vision\edm_analy_sample\ffhq64_uncond_vp_edm_theory",
+#                                       suffixes[0])
+# #%%
+# figdir = "/home/binxu/DL_Projects/edm_analy_sample/cifar10_uncond_vp_edm"
+# croproot = "/home/binxu/DL_Projects/edm_analy_sample/cifar10_uncond_vp_edm_crops"
+
+
 
 #%%
 # load all mtg figures crop and save into folders
@@ -124,6 +161,67 @@ def calculate_fid_from_inception_stats(mu, sigma, mu_ref, sigma_ref):
     s, _ = scipy.linalg.sqrtm(np.dot(sigma, sigma_ref), disp=False)
     fid = m + np.trace(sigma + sigma_ref - s * 2)
     return float(np.real(fid))
+
+#%%
+# tabdir = r"E:\OneDrive - Harvard University\NeurIPS2023_Diffusion\Tables"
+tabdir = r"D:\DL_Projects\Vision\edm_analy_sample\summary"
+tabdir = r"/home/binxu/DL_Projects/edm_analy_sample/summary"
+os.makedirs(tabdir, exist_ok=True)
+imgsize_dict = {"ffhq64": 64, "afhqv264": 64, "cifar10": 32, }
+max_batch_size_dict = {"ffhq64": 64, "afhqv264": 64, "cifar10": 256, }
+refstats_dict = {"ffhq64": "https://nvlabs-fi-cdn.nvidia.com/edm/fid-refs/ffhq-256-stats.npz",
+            "afhqv264": "https://nvlabs-fi-cdn.nvidia.com/edm/fid-refs/afhqv2-64x64.npz",
+            "cifar10": "https://nvlabs-fi-cdn.nvidia.com/edm/fid-refs/cifar10-32x32.npz"}
+
+dataset_name = "cifar10"  # "ffhq64"
+figdir = rf"D:\DL_Projects\Vision\edm_analy_sample\{dataset_name}_uncond_vp_edm_theory"
+figdir = rf"/home/binxu/DL_Projects/edm_analy_sample/{dataset_name}_uncond_vp_edm_theory"
+croproot = figdir + "_crops"
+imgsize = imgsize_dict[dataset_name]
+max_batch_size = max_batch_size_dict[dataset_name]
+refstats_url = refstats_dict[dataset_name]
+
+suffixes = find_unique_suffixes(figdir)
+for suffix in suffixes:
+    os.makedirs(join(croproot, suffix), exist_ok=True)
+# load all mtg figures crop and save into folders
+for suffix in suffixes:
+    mtglist = find_files_with_suffix(figdir, suffix)
+    for mtgname in tqdm.tqdm(mtglist):
+        numbers_before_after_dash = re.findall(r'rnd(\d+)-(\d+)_', mtgname)
+        rnd_start, rnd_end = numbers_before_after_dash[0]
+        rnd_batch = list(range(int(rnd_start), int(rnd_end) + 1))
+        mtg_arr = plt.imread(join(figdir, mtgname))
+        imgcrops = crop_all_from_montage(mtg_arr, max_batch_size, imgsize=imgsize, pad=2)
+        for imgcrop, rnd_id in zip(imgcrops, rnd_batch):
+            plt.imsave(join(croproot, suffix, f"rnd{rnd_id:06d}.png"), imgcrop)
+
+#%%
+fid_batch_size = 512
+fid_col = []
+for suffix in suffixes:
+    Mu, Sigma = calculate_inception_stats(join(croproot, suffix), num_expected=50000,
+                                   seed=0, max_batch_size=fid_batch_size, num_workers=0, prefetch_factor=None,
+                                device=torch.device('cuda'))
+    # https://nvlabs-fi-cdn.nvidia.com/edm/fid-refs/cifar10-32x32.npz
+    with dnnlib.util.open_url(refstats_url) as f:
+        ref = dict(np.load(f))
+
+    fid = calculate_fid_from_inception_stats(Mu, Sigma, ref['mu'], ref['sigma'])
+    print(f"{suffix} FID: {fid:.2f}")
+    fid_col.append(fid)
+#%%
+# sorted(os.listdir(croproot))
+# with the folder name column
+df = pd.DataFrame(fid_col, columns=["FID"], index=suffixes)
+# df.to_csv(join(croproot, "fid_by_skipping.csv"))
+df.to_csv(join(tabdir, f"{dataset_name}_fid_by_skipping.csv"))
+
+
+
+
+
+#%% DEV ZONE
 #%%
 croproot = "/home/binxu/DL_Projects/edm_analy_sample/cifar10_uncond_vp_edm_crops"
 foldername = f"skip1_noise58"
@@ -154,4 +252,3 @@ df.to_csv(join(tabdir, "fid_by_skipping.csv"))
 
 #%%
 #%%
-

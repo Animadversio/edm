@@ -4,7 +4,7 @@
 #SBATCH -t 8:00:00
 #SBATCH --gres=gpu:1
 #SBATCH --mem=16G
-#SBATCH --array=1-24
+#SBATCH --array=25-26
 #SBATCH --mail-user=binxu_wang@hms.harvard.edu
 #SBATCH -o ffhq64_hyrbid_samp_%j.%a.out
 
@@ -35,6 +35,8 @@ param_list=\
 --seeds_range 36864  40960   --max-batch-size 64  --dataset-name afhq64
 --seeds_range 40960  45056   --max-batch-size 64  --dataset-name afhq64
 --seeds_range 45056  49152   --max-batch-size 64  --dataset-name afhq64
+--seeds_range 49152  50048   --max-batch-size 64  --dataset-name ffhq64
+--seeds_range 49152  50048   --max-batch-size 64  --dataset-name afhq64
 '
 
 export unit_name="$(echo "$param_list" | head -n $SLURM_ARRAY_TASK_ID | tail -1)"
