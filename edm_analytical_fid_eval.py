@@ -5,7 +5,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 import tqdm
 
-
 def find_unique_suffixes(folder_name):
     # List all the files in the specified folder
     file_names_list = [f for f in os.listdir(folder_name) if os.path.isfile(os.path.join(folder_name, f))]
@@ -50,36 +49,6 @@ def find_files_with_suffix(folder_path, target_suffix):
     matching_files = sorted([file_name for file_name in all_files if target_suffix in file_name])
 
     return matching_files
-
-# TODO: find a way to compute t_steps from skipsteps
-# suffixes = find_unique_suffixes(r"D:\DL_Projects\Vision\edm_analy_sample\ffhq64_uncond_vp_edm_theory")
-# # for skipstep in [0, 1, 2, 3, 4, 5, 6, 7, 8, ]:  # range(1, num_steps):
-# #     sigma_max_skip = t_steps[skipstep]
-# #     print(f"skip{skipstep}_noise{sigma_max_skip:.0f}")
-# filenames = find_files_with_suffix(r"D:\DL_Projects\Vision\edm_analy_sample\ffhq64_uncond_vp_edm_theory",
-#                                       suffixes[0])
-# #%%
-# figdir = "/home/binxu/DL_Projects/edm_analy_sample/cifar10_uncond_vp_edm"
-# croproot = "/home/binxu/DL_Projects/edm_analy_sample/cifar10_uncond_vp_edm_crops"
-
-
-
-#%%
-# load all mtg figures crop and save into folders
-seeds = list(range(50000))
-max_batch_size = 256
-# iterate batches
-rank_batches = np.array_split(seeds, len(seeds) // max_batch_size)
-for batch_seeds in rank_batches:
-    for skip, sigma_max_skip in zip([0, 1, 2, 3, 4, 5, 6, 7, 8, ],
-                                    t_steps):
-        assert os.path.exists(join(figdir, f"rnd{batch_seeds[0]:06d}-{batch_seeds[-1]:06d}"
-                                           f"_skip{skip}_noise{sigma_max_skip:.0f}.png"))
-        mtg_arr = plt.imread(join(figdir, f"rnd{batch_seeds[0]:06d}-{batch_seeds[-1]:06d}"
-                                             f"_skip{skip}_noise{sigma_max_skip:.0f}.png"))
-        imgcrops = crop_all_from_montage(mtg_arr, len(batch_seeds), imgsize=32, pad=2)
-        for imgid, imgcrop in enumerate(imgcrops):
-            plt.imsave(join(croproot, f"skip{skip}_noise{sigma_max_skip:.0f}", f"rnd{batch_seeds[imgid]:06d}.png"), imgcrop)
 
 #%%
 import pandas as pd
@@ -166,16 +135,23 @@ def calculate_fid_from_inception_stats(mu, sigma, mu_ref, sigma_ref):
 # tabdir = r"E:\OneDrive - Harvard University\NeurIPS2023_Diffusion\Tables"
 tabdir = r"D:\DL_Projects\Vision\edm_analy_sample\summary"
 tabdir = r"/home/binxu/DL_Projects/edm_analy_sample/summary"
-os.makedirs(tabdir, exist_ok=True)
+tabdir = r"/n/scratch3/users/b/biw905/edm_analy_sample/summary"
 imgsize_dict = {"ffhq64": 64, "afhqv264": 64, "cifar10": 32, }
 max_batch_size_dict = {"ffhq64": 64, "afhqv264": 64, "cifar10": 256, }
-refstats_dict = {"ffhq64": "https://nvlabs-fi-cdn.nvidia.com/edm/fid-refs/ffhq-256-stats.npz",
-            "afhqv264": "https://nvlabs-fi-cdn.nvidia.com/edm/fid-refs/afhqv2-64x64.npz",
-            "cifar10": "https://nvlabs-fi-cdn.nvidia.com/edm/fid-refs/cifar10-32x32.npz"}
+# refstats_dict = {"ffhq64": "https://nvlabs-fi-cdn.nvidia.com/edm/fid-refs/ffhq-256.npz",
+#             "afhqv264": "https://nvlabs-fi-cdn.nvidia.com/edm/fid-refs/afhqv2-64x64.npz",
+#             "cifar10": "https://nvlabs-fi-cdn.nvidia.com/edm/fid-refs/cifar10-32x32.npz"}
 
-dataset_name = "cifar10"  # "ffhq64"
+# refstats_url = r"ffhq-64x64.npz"
+refstats_dict = {"ffhq64": "ffhq-256.npz",
+            "afhqv264": "afhqv2-64x64.npz",
+            "cifar10": "cifar10-32x32.npz"}
+
+
+dataset_name = "afhqv264"  # "ffhq64" # "cifar10"  #
 figdir = rf"D:\DL_Projects\Vision\edm_analy_sample\{dataset_name}_uncond_vp_edm_theory"
 figdir = rf"/home/binxu/DL_Projects/edm_analy_sample/{dataset_name}_uncond_vp_edm_theory"
+figdir = rf"/n/scratch3/users/b/biw905/edm_analy_sample/{dataset_name}_uncond_vp_edm_theory"
 croproot = figdir + "_crops"
 imgsize = imgsize_dict[dataset_name]
 max_batch_size = max_batch_size_dict[dataset_name]
@@ -184,6 +160,8 @@ refstats_url = refstats_dict[dataset_name]
 suffixes = find_unique_suffixes(figdir)
 for suffix in suffixes:
     os.makedirs(join(croproot, suffix), exist_ok=True)
+os.makedirs(tabdir, exist_ok=True)
+#%%
 # load all mtg figures crop and save into folders
 for suffix in suffixes:
     mtglist = find_files_with_suffix(figdir, suffix)
@@ -196,8 +174,8 @@ for suffix in suffixes:
         for imgcrop, rnd_id in zip(imgcrops, rnd_batch):
             plt.imsave(join(croproot, suffix, f"rnd{rnd_id:06d}.png"), imgcrop)
 
-#%%
-fid_batch_size = 512
+#%
+fid_batch_size = 256
 fid_col = []
 for suffix in suffixes:
     Mu, Sigma = calculate_inception_stats(join(croproot, suffix), num_expected=50000,
@@ -222,6 +200,35 @@ df.to_csv(join(tabdir, f"{dataset_name}_fid_by_skipping.csv"))
 
 
 #%% DEV ZONE
+
+# TODO: find a way to compute t_steps from skipsteps
+# suffixes = find_unique_suffixes(r"D:\DL_Projects\Vision\edm_analy_sample\ffhq64_uncond_vp_edm_theory")
+# # for skipstep in [0, 1, 2, 3, 4, 5, 6, 7, 8, ]:  # range(1, num_steps):
+# #     sigma_max_skip = t_steps[skipstep]
+# #     print(f"skip{skipstep}_noise{sigma_max_skip:.0f}")
+# filenames = find_files_with_suffix(r"D:\DL_Projects\Vision\edm_analy_sample\ffhq64_uncond_vp_edm_theory",
+#                                       suffixes[0])
+# #%%
+# figdir = "/home/binxu/DL_Projects/edm_analy_sample/cifar10_uncond_vp_edm"
+# croproot = "/home/binxu/DL_Projects/edm_analy_sample/cifar10_uncond_vp_edm_crops"
+
+#%%
+# load all mtg figures crop and save into folders
+seeds = list(range(50000))
+max_batch_size = 256
+# iterate batches
+rank_batches = np.array_split(seeds, len(seeds) // max_batch_size)
+for batch_seeds in rank_batches:
+    for skip, sigma_max_skip in zip([0, 1, 2, 3, 4, 5, 6, 7, 8, ],
+                                    t_steps):
+        assert os.path.exists(join(figdir, f"rnd{batch_seeds[0]:06d}-{batch_seeds[-1]:06d}"
+                                           f"_skip{skip}_noise{sigma_max_skip:.0f}.png"))
+        mtg_arr = plt.imread(join(figdir, f"rnd{batch_seeds[0]:06d}-{batch_seeds[-1]:06d}"
+                                             f"_skip{skip}_noise{sigma_max_skip:.0f}.png"))
+        imgcrops = crop_all_from_montage(mtg_arr, len(batch_seeds), imgsize=32, pad=2)
+        for imgid, imgcrop in enumerate(imgcrops):
+            plt.imsave(join(croproot, f"skip{skip}_noise{sigma_max_skip:.0f}", f"rnd{batch_seeds[imgid]:06d}.png"), imgcrop)
+
 #%%
 croproot = "/home/binxu/DL_Projects/edm_analy_sample/cifar10_uncond_vp_edm_crops"
 foldername = f"skip1_noise58"
@@ -243,6 +250,7 @@ for foldername in sorted(os.listdir(croproot)):
 #%%
 # tabdir = r"E:\OneDrive - Harvard University\NeurIPS2023_Diffusion\Tables"
 tabdir = r"/home/binxu/DL_Projects/edm_analy_sample/summary"
+
 # sorted(os.listdir(croproot))
 # with the folder name column
 df = pd.DataFrame(fid_col, columns=["FID"], index=sorted(os.listdir(croproot)))
