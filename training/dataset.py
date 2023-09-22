@@ -248,3 +248,77 @@ class ImageFolderDataset(Dataset):
         return labels
 
 #----------------------------------------------------------------------------
+
+class TensorDataset(Dataset):
+    def __init__(self,
+        path,                   # pt or npy file
+        resolution      = None, # Ensure specific resolution, None = highest available.
+        multiplier      = 127.5,    # Multiply raw data by the specified value.
+        bias            = 127.5,    # Add the specified value to raw data.
+        **super_kwargs,         # Additional arguments for the Dataset base class.
+    ):
+        self._path = path
+
+        if self._file_ext(self._path) == '.pt':
+            self._type = 'pt'
+            self.raw_data = torch.load(self._path)
+        elif self._file_ext(self._path) == '.npy':
+            self._type = 'npy'
+            self.raw_data = np.load(self._path)
+        else:
+            raise IOError('Path must point to a directory or zip')
+        self.multiplier = multiplier
+        self.bias = bias
+        # overall bias and multiplier for the dataset,
+        # this is used to cancel out the training_loop transform
+        # `images = images.to(device).to(torch.float32) / 127.5 - 1`
+        self.raw_data = self.raw_data * self.multiplier + self.bias
+
+        name = os.path.splitext(os.path.basename(self._path))[0]
+        raw_shape = list(self.raw_data.shape)
+
+        if resolution is not None and (raw_shape[2] != resolution or raw_shape[3] != resolution):
+            raise IOError('Image files do not match the specified resolution')
+        super().__init__(name=name, raw_shape=raw_shape, **super_kwargs)
+
+    @staticmethod
+    def _file_ext(fname):
+        return os.path.splitext(fname)[1].lower()
+
+    def __getstate__(self):
+        return dict(super().__getstate__(), _zipfile=None)
+
+    def __getitem__(self, idx):
+        raw_idx = self._raw_idx[idx]
+        # image = self._cached_images.get(raw_idx, None)
+        # if image is None:
+        image = self._load_raw_image(raw_idx)
+        # assert isinstance(image, np.ndarray)
+        # assert list(image.shape) == self.image_shape
+        # assert image.dtype == np.uint8
+        if self._xflip[idx]:
+            assert image.ndim == 3 # CHW
+            image = image[:, :, ::-1]
+        return image, self.get_label(idx)
+
+    def _load_raw_image(self, raw_idx):
+        image = self.raw_data[raw_idx]
+        if image.ndim == 2:
+            image = image[:, :, np.newaxis] # HW => HWC
+        # image = image.transpose(2, 0, 1) # HWC => CHW
+        return image
+
+    def _load_raw_labels(self):
+        return None
+        # fname = 'dataset.json'
+        # if fname not in self._all_fnames:
+        #     return None
+        # with self._open_file(fname) as f:
+        #     labels = json.load(f)['labels']
+        # if labels is None:
+        #     return None
+        # labels = dict(labels)
+        # labels = [labels[fname.replace('\\', '/')] for fname in self._image_fnames]
+        # labels = np.array(labels)
+        # labels = labels.astype({1: np.int64, 2: np.float32}[labels.ndim])
+        # return labels
