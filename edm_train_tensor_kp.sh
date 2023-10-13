@@ -2,9 +2,9 @@
 #SBATCH -t 1-12:00          # Runtime in D-HH:MM, minimum of 10 minutes
 #SBATCH -p kempner          # Partition to submit to
 #SBATCH -c 16               # Number of cores (-c)
-#SBATCH --mem=20G           # Memory pool for all cores (see also --mem-per-cpu)
+#SBATCH --mem=48G           # Memory pool for all cores (see also --mem-per-cpu)
 #SBATCH --gres=gpu:4
-#SBATCH --array 3,5,6
+#SBATCH --array 1-2
 #SBATCH -o edm_train_%A_%a.out  # File to which STDOUT will be written, %j inserts jobid
 #SBATCH -e edm_trainErr_%A_%a.err  # File to which STDERR will be written, %j inserts jobid
 #SBATCH --mail-user=binxu_wang@hms.harvard.edu
