@@ -262,6 +262,7 @@ class TensorDataset(Dataset):
         if self._file_ext(self._path) == '.pt':
             self._type = 'pt'
             self.raw_data = torch.load(self._path)
+            self.raw_data = self.raw_data.cpu().numpy()
         elif self._file_ext(self._path) == '.npy':
             self._type = 'npy'
             self.raw_data = np.load(self._path)

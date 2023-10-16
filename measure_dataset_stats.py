@@ -12,9 +12,7 @@ from torchvision.transforms import ToTensor, Normalize, Compose, Resize, RandomH
 from os.path import join
 #%%
 dataroot = r'E:\Datasets'
-dataset = ImageFolderDataset(join(dataroot, r'afhqv2-64x64.zip'), resolution=64, )
 # collect all data into a nuymy array
-#%%
 dataset = ImageFolderDataset(join(dataroot, 'afhqv2-64x64.zip'), resolution=64, )
 #%%
 image_col = []
@@ -26,6 +24,9 @@ image_tsr = (image_tsr.to(torch.float32) / 255.0 )
 image_tsr = image_tsr.cuda()
 #%% compute the covariance matrix
 covmat = torch.cov(image_tsr.view(image_tsr.shape[0], -1).T)
+#%%
+image_mean = image_tsr.mean(dim=(0))
+image_kurtosis = (((image_tsr - image_mean[None])**2).sum(dim=(1, 2, 3), keepdim=True) * (image_tsr - image_mean[None])).mean(dim=0)
 #%%
 # eigval, eigvec = torch.eig(covmat, eigenvectors=True)
 eigvals, eigvecs = torch.linalg.eigh(covmat)
