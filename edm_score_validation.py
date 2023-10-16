@@ -109,59 +109,32 @@ class StackedRandomGenerator:
 
 
 #%%
-seeds = list(range(64))
-max_batch_size = 64
-device = 'cuda'
-class_idx = None
-network_pkl = 'https://nvlabs-fi-cdn.nvidia.com/edm/pretrained/edm-cifar10-32x32-uncond-vp.pkl'
-outdir = 'validation'
-subdirs = False
-# dist.init()
-num_batches = ((len(seeds) - 1) // (max_batch_size * dist.get_world_size()) + 1) * dist.get_world_size()
-all_batches = torch.as_tensor(seeds).tensor_split(num_batches)
-# rank_batches = all_batches[dist.get_rank() :: dist.get_world_size()]
-rank_batches = all_batches
-# Rank 0 goes first.
-# if dist.get_rank() != 0:
-#     torch.distributed.barrier()
-
-# Load network.
-# dist.print0(f'Loading network from "{network_pkl}"...')
-with dnnlib.util.open_url(network_pkl, verbose=(dist.get_rank() == 0)) as f:
-    net = pickle.load(f)['ema'].to(device)
-#%%
-batch_seeds = rank_batches[0]
-batch_size = max_batch_size
-rnd = StackedRandomGenerator(device, batch_seeds)
-latents = rnd.randn([batch_size, net.img_channels, net.img_resolution, net.img_resolution], device=device)
-
-#%%
+import pandas as pd
 from os.path import join
-figdir = r"/home/binxu/DL_Projects/edm_analy_sample/cifar10_uncond_vp_edm_theory"
-PCAdir = r"/home/binxu/DL_Projects/imgdataset_PCAs"
-data = torch.load(join(PCAdir, "CIFAR10_pca.pt"))
-S, V, imgmean, cov_eigs  = data["S"], data["V"], data["mean"], data["cov_eigs"]
-# S = S.to(device)
-V = V.to(device)
-imgmean = imgmean.to(device)
-cov_eigs = cov_eigs.to(device)
-#%%
-seeds = list(range(50000))
-max_batch_size = 256
-num_steps = 18
-sigma_min = 0.002
-sigma_max = 80
-rho = 7
-sigma_min = max(sigma_min, net.sigma_min)
-sigma_max = min(sigma_max, net.sigma_max)
-# Time step discretization.
-step_indices = torch.arange(num_steps, dtype=torch.float64, device=latents.device)
-t_steps = (sigma_max ** (1 / rho) + step_indices / (num_steps - 1) * (sigma_min ** (1 / rho) - sigma_max ** (1 / rho))) ** rho
-t_steps = torch.cat([net.round_sigma(t_steps), torch.zeros_like(t_steps[:1])]) # t_N = 0
+from core.utils.plot_utils import saveallforms
 #%%
 def edm_gaussian_score(xT, mu, U, Lambda, sigma, ):
     """
+    Args:
+        xT: B x ndim
+        mu: ndim
+        U: ndim x rdim
+        Lambda: rdim
+        sigma: scalar
 
+    Returns:
+        score
+    """
+    xT_rel = xT - mu[None, :]  # B x ndim
+    xT_coef = xT_rel @ U  # B x rdim
+    scaling_coef = Lambda / (sigma ** 2 + Lambda)  # rdim
+    x_onmanif = (xT_coef * scaling_coef[None, :]) @ U.T  # Tdim x B x ndim
+    score_x = - (xT_rel - x_onmanif) / sigma ** 2  # B x ndim
+    return score_x
+
+
+def edm_gaussian_1storder_score(xT, mu, U, Lambda, sigma, ):
+    """
     Args:
         xT: B x ndim
         sigma_ts: Tdim
@@ -170,26 +143,49 @@ def edm_gaussian_score(xT, mu, U, Lambda, sigma, ):
         Lambda: rdim
 
     Returns:
-
+        score
     """
     xT_rel = xT - mu[None, :]  # B x ndim
-    xT_coef = xT_rel @ U  # B x rdim
-    scaling_coef = Lambda / (sigma ** 2 + Lambda)  # rdim
-    x_onmanif = (xT_coef * scaling_coef[None,:]) @ U.T  # Tdim x B x ndim
-    score_x = - (xT_rel - x_onmanif) / sigma ** 2 # B x ndim
+    x_onmanif = ((xT_rel @ U) * (Lambda[None, :] / sigma ** 2)) @ U.T # Tdim x B x ndim
+    score_x = - (xT_rel - x_onmanif) / sigma ** 2  # B x ndim
     return score_x
 
 
+PCAdir = r"/home/binxu/DL_Projects/imgdataset_PCAs"
+figdir = r"/home/binxu/DL_Projects/edm_score_validation"
 #%%
-
-batch_seeds = torch.arange(0, 512).long() #rank_batches[0]
+device = 'cuda'
+class_idx = None
+outdir = 'validation'
+# Load network.
+network_pkl = 'https://nvlabs-fi-cdn.nvidia.com/edm/pretrained/edm-cifar10-32x32-uncond-vp.pkl'
+with dnnlib.util.open_url(network_pkl, verbose=(dist.get_rank() == 0)) as f:
+    net = pickle.load(f)['ema'].to(device)
+#%%
+data = torch.load(join(PCAdir, "CIFAR10_pca.pt"))
+S, V, imgmean, cov_eigs = data["S"], data["V"], data["mean"], data["cov_eigs"]
+V = V.to(device)
+imgmean = imgmean.to(device)
+cov_eigs = cov_eigs.to(device)
+#%%
+num_steps = 18
+sigma_min = 0.002
+sigma_max = 80
+rho = 7
+sigma_min = max(sigma_min, net.sigma_min)
+sigma_max = min(sigma_max, net.sigma_max)
+# Time step discretization.
+step_indices = torch.arange(num_steps, dtype=torch.float64, device=device)
+t_steps = (sigma_max ** (1 / rho) + step_indices / (num_steps - 1) * (sigma_min ** (1 / rho) - sigma_max ** (1 / rho))) ** rho
+t_steps = torch.cat([net.round_sigma(t_steps), torch.zeros_like(t_steps[:1])]) # t_N = 0
+#%%
+batch_seeds = torch.arange(0, 512).long()  # rank_batches[0]
 batch_size = len(batch_seeds)
 rnd = StackedRandomGenerator(device, batch_seeds)
 latents = rnd.randn([batch_size, net.img_channels, net.img_resolution, net.img_resolution], device=device)
 #%%
 x_next = latents
 #%%
-import pandas as pd
 print("max eigen", cov_eigs.max().item() * 4)
 print("mean eigen", cov_eigs.mean().item() * 4)
 print("min eigen", cov_eigs.min().item() * 4)
@@ -201,22 +197,45 @@ for sigma in t_steps[:]:
     score_xt = (denoised - x_probe) / sigma_t ** 2
     score_xt_pred = edm_gaussian_score(x_probe.flatten(1), imgmean.flatten() * 2 - 1, V, cov_eigs * 4, sigma_t)
     score_xt_pred_iso = edm_gaussian_score(x_probe.flatten(1), imgmean.flatten() * 2 - 1, V, torch.zeros_like(cov_eigs) * 4, sigma_t)
-    #%
+    score_xt_pred_1st = edm_gaussian_1storder_score(x_probe.flatten(1), imgmean.flatten() * 2 - 1, V, cov_eigs * 4, sigma_t)
     print("Noise Sigma", sigma_t.item())
-    # print(((score_xt.flatten(1))**2).sum(dim=1).mean())
-    # print(((score_xt.flatten(1) - score_xt_pred)**2).sum(dim=1).mean())
-    # print(((score_xt.flatten(1) - score_xt_pred_iso)**2).sum(dim=1).mean())
     ss_total = ((score_xt.flatten(1))**2).sum(dim=1).mean()
-    residual = ((score_xt.flatten(1) - score_xt_pred_iso)**2).sum(dim=1).mean()
+    residual = ((score_xt.flatten(1) - score_xt_pred)**2).sum(dim=1).mean()
+    residual_gau1st = ((score_xt.flatten(1) - score_xt_pred_1st)**2).sum(dim=1).mean()
     residual_iso = ((score_xt.flatten(1) - score_xt_pred_iso)**2).sum(dim=1).mean()
     resid_ratio = residual / ss_total
+    resid_ratio_gau1st = residual_gau1st / ss_total
     resid_ratio_iso = residual_iso / ss_total
     print("residual variance ratio of Gaussian model", resid_ratio.item())
     print("Residual variance ratio of Gaussian model without cov", resid_ratio_iso.item())
+    print("residual variance ratio of Gaussian model with 1st expansion", resid_ratio_gau1st.item())
     residual_stats.append({"sigma": sigma_t.item(), "resid_ratio": resid_ratio.item(), "resid_ratio_iso": resid_ratio_iso.item(),
-                           "residual": residual.item(), "residual_iso": residual_iso.item(), "ss_total": ss_total.item()})
+                           "resid_ratio_gau1st": resid_ratio_gau1st.item(),
+                           "residual": residual.item(), "residual_iso": residual_iso.item(), "residual_gau1st": residual_gau1st.item(),
+                           "ss_total": ss_total.item()
+                           })
 
 residual_df = pd.DataFrame(residual_stats)
+residual_df.to_csv(join(figdir, "cifar10_score_approx_residual.csv"))
+#%%
+plt.figure(figsize=[4.5, 5])
+# plt.semilogy(residual_df["sigma"], residual_df["resid_ratio_gau1st"])
+cov_eigs_sorted, _ = torch.sort(cov_eigs, descending=True)
+std_eigs = torch.sqrt(cov_eigs_sorted*4).cpu().numpy()
+for eigi in range(10):
+    plt.axvline(x=std_eigs[eigi], linestyle=":", color="r", lw=1., label="sqrt top eigen" if eigi==0 else None)
+plt.axvline(x=(cov_eigs.mean()*4).sqrt().cpu().numpy(),
+            linestyle=":", color="k", lw=1., label="sqrt mean eigenval") #label="sqrt top eigen"
+plt.semilogy(residual_df["sigma"], residual_df["resid_ratio"], "-o",
+             label="Score of Gaussian", alpha=0.5)
+plt.semilogy(residual_df["sigma"], residual_df["resid_ratio_iso"], "-o",
+             label="Score of Data Center", alpha=0.5)
+plt.legend()
+plt.ylabel("Fraction of Squared Error")
+plt.xlabel("noise scale $\sigma$")
+plt.title("CIFAR10 score approximation")
+saveallforms(figdir, "cifar10_score_approx_residual_curve")
+plt.show()
 #%%
 print(torch.sum(cov_eigs * 4))
 #%%
@@ -224,4 +243,168 @@ plt.imshow(make_grid(denoised, nrow=8).\
            detach().cpu().permute([1, 2, 0]).numpy())
 plt.show()
 #%%
+
+
+#%%
+network_pkl = 'https://nvlabs-fi-cdn.nvidia.com/edm/pretrained/edm-ffhq-64x64-uncond-vp.pkl'
+with dnnlib.util.open_url(network_pkl, verbose=(dist.get_rank() == 0)) as f:
+    net = pickle.load(f)['ema'].to(device)
+
+data = torch.load(join(PCAdir, "ffhq64_PCA.pt"))
+cov_eigs, V, imgmean = data["eigval"], data["eigvec"], data["imgmean"]
+V = V.to(device)
+imgmean = imgmean.to(device)
+cov_eigs = cov_eigs.to(device)
+#%%
+max_batch_size = 128
+num_steps = 40
+sigma_min = 0.002
+sigma_max = 80
+rho = 7
+sigma_min = max(sigma_min, net.sigma_min)
+sigma_max = min(sigma_max, net.sigma_max)
+# Time step discretization.
+step_indices = torch.arange(num_steps, dtype=torch.float64, device=device)
+t_steps = (sigma_max ** (1 / rho) + step_indices / (num_steps - 1) * (sigma_min ** (1 / rho) - sigma_max ** (1 / rho))) ** rho
+t_steps = torch.cat([net.round_sigma(t_steps), torch.zeros_like(t_steps[:1])]) # t_N = 0
+#%%
+batch_seeds = torch.arange(0, max_batch_size).long()  # rank_batches[0]
+batch_size = len(batch_seeds)
+rnd = StackedRandomGenerator(device, batch_seeds)
+latents = rnd.randn([batch_size, net.img_channels, net.img_resolution, net.img_resolution], device=device)
+#%%
+x_next = latents
+#%%
+print("max eigen", cov_eigs.max().item() * 4)
+print("mean eigen", cov_eigs.mean().item() * 4)
+print("min eigen", cov_eigs.min().item() * 4)
+residual_stats = []
+for sigma in t_steps[:]:
+    sigma_t = sigma  # torch.tensor(5, device="cuda", dtype=torch.float64) # t_steps[1]
+    x_probe = x_next * sigma_t
+    denoised = net(x_probe, sigma_t, None)
+    score_xt = (denoised - x_probe) / sigma_t ** 2
+    score_xt_pred = edm_gaussian_score(x_probe.flatten(1), imgmean.flatten() * 2 - 1, V, cov_eigs * 4, sigma_t)
+    score_xt_pred_iso = edm_gaussian_score(x_probe.flatten(1), imgmean.flatten() * 2 - 1, V, torch.zeros_like(cov_eigs) * 4, sigma_t)
+    score_xt_pred_1st = edm_gaussian_1storder_score(x_probe.flatten(1), imgmean.flatten() * 2 - 1, V, cov_eigs * 4, sigma_t)
+    print("Noise Sigma", sigma_t.item())
+    ss_total = ((score_xt.flatten(1))**2).sum(dim=1).mean()
+    residual = ((score_xt.flatten(1) - score_xt_pred)**2).sum(dim=1).mean()
+    residual_gau1st = ((score_xt.flatten(1) - score_xt_pred_1st)**2).sum(dim=1).mean()
+    residual_iso = ((score_xt.flatten(1) - score_xt_pred_iso)**2).sum(dim=1).mean()
+    resid_ratio = residual / ss_total
+    resid_ratio_gau1st = residual_gau1st / ss_total
+    resid_ratio_iso = residual_iso / ss_total
+    print("residual variance ratio of Gaussian model", resid_ratio.item())
+    print("Residual variance ratio of Gaussian model without cov", resid_ratio_iso.item())
+    print("residual variance ratio of Gaussian model with 1st expansion", resid_ratio_gau1st.item())
+    residual_stats.append({"sigma": sigma_t.item(), "resid_ratio": resid_ratio.item(), "resid_ratio_iso": resid_ratio_iso.item(),
+                           "resid_ratio_gau1st": resid_ratio_gau1st.item(),
+                           "residual": residual.item(), "residual_iso": residual_iso.item(), "residual_gau1st": residual_gau1st.item(),
+                           "ss_total": ss_total.item()
+                           })
+
+residual_df = pd.DataFrame(residual_stats)
+residual_df.to_csv(join(figdir, "ffhq64_score_approx_residual.csv"))
+#%%
+plt.figure(figsize=[4.5, 5])
+cov_eigs_sorted, _ = torch.sort(cov_eigs, descending=True)
+std_eigs = torch.sqrt(cov_eigs_sorted*4).cpu().numpy()
+for eigi in range(10):
+    plt.axvline(x=std_eigs[eigi], linestyle=":", color="r", lw=1., label="sqrt top eigen" if eigi==0 else None)
+plt.axvline(x=(cov_eigs.mean()*4).sqrt().cpu().numpy(),
+            linestyle=":", color="k", lw=1., label="sqrt mean eigenval") #label="sqrt top eigen"
+plt.semilogy(residual_df["sigma"], residual_df["resid_ratio"], "-o",
+             label="Score of Gaussian", alpha=0.5)
+plt.semilogy(residual_df["sigma"], residual_df["resid_ratio_iso"], "-o",
+             label="Score of Data Center", alpha=0.5)
+plt.legend()
+plt.ylabel("Fraction of Squared Error")
+plt.xlabel("noise scale $\sigma$")
+plt.title("FFHQ-64 score approximation")
+saveallforms(figdir, "FFHQ64_score_approx_residual_curve")
+plt.show()
+
+
+
+
+#%%
+network_pkl = 'https://nvlabs-fi-cdn.nvidia.com/edm/pretrained/edm-afhqv2-64x64-uncond-vp.pkl'
+with dnnlib.util.open_url(network_pkl, verbose=(dist.get_rank() == 0)) as f:
+    net = pickle.load(f)['ema'].to(device)
+
+data = torch.load(join(PCAdir, "afhqv264_PCA.pt"))
+cov_eigs, V, imgmean = data["eigval"], data["eigvec"], data["imgmean"]
+V = V.to(device)
+imgmean = imgmean.to(device)
+cov_eigs = cov_eigs.to(device)
+#%%
+max_batch_size = 128
+num_steps = 40
+sigma_min = 0.002
+sigma_max = 80
+rho = 7
+sigma_min = max(sigma_min, net.sigma_min)
+sigma_max = min(sigma_max, net.sigma_max)
+# Time step discretization.
+step_indices = torch.arange(num_steps, dtype=torch.float64, device=device)
+t_steps = (sigma_max ** (1 / rho) + step_indices / (num_steps - 1) * (sigma_min ** (1 / rho) - sigma_max ** (1 / rho))) ** rho
+t_steps = torch.cat([net.round_sigma(t_steps), torch.zeros_like(t_steps[:1])]) # t_N = 0
+#%%
+batch_seeds = torch.arange(0, max_batch_size).long()  # rank_batches[0]
+batch_size = len(batch_seeds)
+rnd = StackedRandomGenerator(device, batch_seeds)
+latents = rnd.randn([batch_size, net.img_channels, net.img_resolution, net.img_resolution], device=device)
+#%%
+x_next = latents
+#%%
+print("max eigen", cov_eigs.max().item() * 4)
+print("mean eigen", cov_eigs.mean().item() * 4)
+print("min eigen", cov_eigs.min().item() * 4)
+residual_stats = []
+for sigma in t_steps[:]:
+    sigma_t = sigma  # torch.tensor(5, device="cuda", dtype=torch.float64) # t_steps[1]
+    x_probe = x_next * sigma_t
+    denoised = net(x_probe, sigma_t, None)
+    score_xt = (denoised - x_probe) / sigma_t ** 2
+    score_xt_pred = edm_gaussian_score(x_probe.flatten(1), imgmean.flatten() * 2 - 1, V, cov_eigs * 4, sigma_t)
+    score_xt_pred_iso = edm_gaussian_score(x_probe.flatten(1), imgmean.flatten() * 2 - 1, V, torch.zeros_like(cov_eigs) * 4, sigma_t)
+    score_xt_pred_1st = edm_gaussian_1storder_score(x_probe.flatten(1), imgmean.flatten() * 2 - 1, V, cov_eigs * 4, sigma_t)
+    print("Noise Sigma", sigma_t.item())
+    ss_total = ((score_xt.flatten(1))**2).sum(dim=1).mean()
+    residual = ((score_xt.flatten(1) - score_xt_pred)**2).sum(dim=1).mean()
+    residual_gau1st = ((score_xt.flatten(1) - score_xt_pred_1st)**2).sum(dim=1).mean()
+    residual_iso = ((score_xt.flatten(1) - score_xt_pred_iso)**2).sum(dim=1).mean()
+    resid_ratio = residual / ss_total
+    resid_ratio_gau1st = residual_gau1st / ss_total
+    resid_ratio_iso = residual_iso / ss_total
+    print("residual variance ratio of Gaussian model", resid_ratio.item())
+    print("Residual variance ratio of Gaussian model without cov", resid_ratio_iso.item())
+    print("residual variance ratio of Gaussian model with 1st expansion", resid_ratio_gau1st.item())
+    residual_stats.append({"sigma": sigma_t.item(), "resid_ratio": resid_ratio.item(), "resid_ratio_iso": resid_ratio_iso.item(),
+                           "resid_ratio_gau1st": resid_ratio_gau1st.item(),
+                           "residual": residual.item(), "residual_iso": residual_iso.item(), "residual_gau1st": residual_gau1st.item(),
+                           "ss_total": ss_total.item()
+                           })
+
+residual_df = pd.DataFrame(residual_stats)
+residual_df.to_csv(join(figdir, "afhqv264_score_approx_residual.csv"))
+#%%
+plt.figure(figsize=[4.5, 5])
+cov_eigs_sorted, _ = torch.sort(cov_eigs, descending=True)
+std_eigs = torch.sqrt(cov_eigs_sorted*4).cpu().numpy()
+for eigi in range(10):
+    plt.axvline(x=std_eigs[eigi], linestyle=":", color="r", lw=1., label="sqrt top eigen" if eigi==0 else None)
+plt.axvline(x=(cov_eigs.mean()*4).sqrt().cpu().numpy(),
+            linestyle=":", color="k", lw=1., label="sqrt mean eigenval") #label="sqrt top eigen"
+plt.semilogy(residual_df["sigma"], residual_df["resid_ratio"], "-o",
+             label="Score of Gaussian", alpha=0.5)
+plt.semilogy(residual_df["sigma"], residual_df["resid_ratio_iso"], "-o",
+             label="Score of Data Center", alpha=0.5)
+plt.legend()
+plt.ylabel("Fraction of Squared Error")
+plt.xlabel("noise scale $\sigma$")
+plt.title("afhqv2-64 score approximation")
+saveallforms(figdir, "afhqv264_score_approx_residual_curve")
+plt.show()
 
