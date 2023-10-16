@@ -28,6 +28,7 @@ for imgbatch, _ in tqdm.tqdm(dataloader): # 18sec
     imgbatch = imgbatch.view(imgbatch.shape[0], -1)
     imgmean += imgbatch.sum(dim=0)
     imgcov += imgbatch.T @ imgbatch
+    raise Exception
 imgmean /= len(dataset)
 imgcov -= imgmean.outer(imgmean) * len(dataset)
 imgcov /= len(dataset) - 1

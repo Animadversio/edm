@@ -134,8 +134,8 @@ def calculate_fid_from_inception_stats(mu, sigma, mu_ref, sigma_ref):
 #%%
 # tabdir = r"E:\OneDrive - Harvard University\NeurIPS2023_Diffusion\Tables"
 tabdir = r"D:\DL_Projects\Vision\edm_analy_sample\summary"
-tabdir = r"/home/binxu/DL_Projects/edm_analy_sample/summary"
 tabdir = r"/n/scratch3/users/b/biw905/edm_analy_sample/summary"
+tabdir = r"/home/binxu/DL_Projects/edm_analy_sample/summary"
 imgsize_dict = {"ffhq64": 64, "afhqv264": 64, "cifar10": 32, }
 max_batch_size_dict = {"ffhq64": 64, "afhqv264": 64, "cifar10": 256, }
 # refstats_dict = {"ffhq64": "https://nvlabs-fi-cdn.nvidia.com/edm/fid-refs/ffhq-256.npz",
@@ -143,15 +143,16 @@ max_batch_size_dict = {"ffhq64": 64, "afhqv264": 64, "cifar10": 256, }
 #             "cifar10": "https://nvlabs-fi-cdn.nvidia.com/edm/fid-refs/cifar10-32x32.npz"}
 
 # refstats_url = r"ffhq-64x64.npz"
-refstats_dict = {"ffhq64": "ffhq-256.npz",
+refstats_dict = {#"ffhq64": "ffhq-256.npz",
+                "ffhq64": r"ffhq-64x64.npz",
             "afhqv264": "afhqv2-64x64.npz",
             "cifar10": "cifar10-32x32.npz"}
 
 
-dataset_name = "afhqv264"  # "ffhq64" # "cifar10"  #
+dataset_name = "ffhq64" # "afhqv264"  # "ffhq64" # "cifar10"  #
 figdir = rf"D:\DL_Projects\Vision\edm_analy_sample\{dataset_name}_uncond_vp_edm_theory"
-figdir = rf"/home/binxu/DL_Projects/edm_analy_sample/{dataset_name}_uncond_vp_edm_theory"
 figdir = rf"/n/scratch3/users/b/biw905/edm_analy_sample/{dataset_name}_uncond_vp_edm_theory"
+figdir = rf"/home/binxu/DL_Projects/edm_analy_sample/{dataset_name}_uncond_vp_edm_theory"
 croproot = figdir + "_crops"
 imgsize = imgsize_dict[dataset_name]
 max_batch_size = max_batch_size_dict[dataset_name]
@@ -193,7 +194,7 @@ for suffix in suffixes:
 # with the folder name column
 df = pd.DataFrame(fid_col, columns=["FID"], index=suffixes)
 # df.to_csv(join(croproot, "fid_by_skipping.csv"))
-df.to_csv(join(tabdir, f"{dataset_name}_fid_by_skipping.csv"))
+df.to_csv(join(tabdir, f"{dataset_name}_fid_by_skipping_new.csv"))
 
 
 

@@ -144,6 +144,7 @@ os.makedirs(figdir, exist_ok=True)
 #%% hybrid sampler
 seeds = list(range(50000))
 max_batch_size = 256
+#%%
 num_steps = 18
 sigma_min = 0.002
 sigma_max = 80

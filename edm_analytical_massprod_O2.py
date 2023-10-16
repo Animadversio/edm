@@ -230,7 +230,7 @@ for batch_seeds in tqdm.tqdm(all_batches, unit='batch', ):
 
 
 
-# #%%
+#%%
 # def crop_all_from_montage(img, totalnum, imgsize=32, pad=2):
 #     """Return all crops from a montage image"""
 #     nrow, ncol = (img.shape[0] - pad) // (imgsize + pad), (img.shape[1] - pad) // (imgsize + pad)

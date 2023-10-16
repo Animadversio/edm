@@ -25,8 +25,8 @@ def calculate_inception_stats(
     num_workers=3, prefetch_factor=2, device=torch.device('cuda'),
 ):
     # Rank 0 goes first.
-    if dist.get_rank() != 0:
-        torch.distributed.barrier()
+    # if dist.get_rank() != 0:
+    #     torch.distributed.barrier()
 
     # Load Inception-v3 model.
     # This is a direct PyTorch translation of http://download.tensorflow.org/models/image/imagenet/inception-2015-12-05.tgz
@@ -46,8 +46,8 @@ def calculate_inception_stats(
         raise click.ClickException(f'Found {len(dataset_obj)} images, but need at least 2 to compute statistics')
 
     # Other ranks follow.
-    if dist.get_rank() == 0:
-        torch.distributed.barrier()
+    # if dist.get_rank() == 0:
+    #     torch.distributed.barrier()
 
     # Divide images into batches.
     num_batches = ((len(dataset_obj) - 1) // (max_batch_size * dist.get_world_size()) + 1) * dist.get_world_size()
@@ -60,18 +60,20 @@ def calculate_inception_stats(
     mu = torch.zeros([feature_dim], dtype=torch.float64, device=device)
     sigma = torch.zeros([feature_dim, feature_dim], dtype=torch.float64, device=device)
     for images, _labels in tqdm.tqdm(data_loader, unit='batch', disable=(dist.get_rank() != 0)):
-        torch.distributed.barrier()
+        # torch.distributed.barrier()
         if images.shape[0] == 0:
             continue
         if images.shape[1] == 1:
             images = images.repeat([1, 3, 1, 1])
+        if images.shape[1] == 4:
+            images = images[:, :3, :, :]
         features = detector_net(images.to(device), **detector_kwargs).to(torch.float64)
         mu += features.sum(0)
         sigma += features.T @ features
 
     # Calculate grand totals.
-    torch.distributed.all_reduce(mu)
-    torch.distributed.all_reduce(sigma)
+    # torch.distributed.all_reduce(mu)
+    # torch.distributed.all_reduce(sigma)
     mu /= len(dataset_obj)
     sigma -= mu.ger(mu) * len(dataset_obj)
     sigma /= len(dataset_obj) - 1
@@ -119,21 +121,21 @@ def main():
 
 def calc(image_path, ref_path, num_expected, seed, batch):
     """Calculate FID for a given set of images."""
-    torch.multiprocessing.set_start_method('spawn')
-    dist.init()
+    # torch.multiprocessing.set_start_method('spawn')
+    # dist.init()
 
     dist.print0(f'Loading dataset reference statistics from "{ref_path}"...')
     ref = None
-    if dist.get_rank() == 0:
-        with dnnlib.util.open_url(ref_path) as f:
-            ref = dict(np.load(f))
+    # if dist.get_rank() == 0:
+    with dnnlib.util.open_url(ref_path) as f:
+        ref = dict(np.load(f))
 
     mu, sigma = calculate_inception_stats(image_path=image_path, num_expected=num_expected, seed=seed, max_batch_size=batch)
     dist.print0('Calculating FID...')
     if dist.get_rank() == 0:
         fid = calculate_fid_from_inception_stats(mu, sigma, ref['mu'], ref['sigma'])
         print(f'{fid:g}')
-    torch.distributed.barrier()
+    # torch.distributed.barrier()
 
 #----------------------------------------------------------------------------
 
